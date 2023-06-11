@@ -85,7 +85,7 @@ pub fn f_test(p: &BigUint, trials: i32) -> bool {
     return true;
 }
 
-// this can definitely be optimized... but it works for now
+// this can definitely (maybe?) be optimized... but it works for now
 pub fn eea(a: &BigUint, b: &BigUint) -> (BigInt, BigInt) {
     let mut r1 = a.to_bigint().unwrap();
     let mut r2 = b.to_bigint().unwrap();
@@ -96,15 +96,15 @@ pub fn eea(a: &BigUint, b: &BigUint) -> (BigInt, BigInt) {
     while !(&r2.is_zero()) {
         // println!("{q} {r1} {c1r1} {c2r1}");
         let q = &r1 / &r2;
-        let mut temp = (&r1).clone();
+        let temp = (&r1).clone();
         r1 = r2.clone();
         r2 = temp % r2;
 
-        temp = (&c1r2).clone();
+        let temp = (&c1r2).clone();
         c1r2 = &c1r1 - (&c1r2 * &q);
         c1r1 = temp.clone();
 
-        temp = (&c2r2).clone();
+        let temp = (&c2r2).clone();
         c2r2 = &c2r1 - (&c2r2 * &q);
         c2r1 = temp.clone();
     }
