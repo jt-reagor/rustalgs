@@ -1,13 +1,43 @@
 #![allow(dead_code)]
 
-pub fn key_schedule() {
+pub fn key_schedule(){
     // let rcon: u32;
     let rc: u8 = 1;
     let rcon: u32 = (rc as u32) << 24;
-    let key_len: u16 = 256; // 256 for AES-256
-    let key_len_words = key_len / 32;
-    let num_round_keys: u8 = 15; // 15 for AES-256
+    let key_len: u16 = 128; // 256 for AES-256
+    // let key_len_words = key_len / 32;
+    let num_round_keys: u8 = 11; // 15 for AES-256
+    let rcon = increment_rcon(rcon);
+    let key_seed: u128 = 0;
+    let r1 = compute_next_key(rcon, key_seed);
+}
 
+fn compute_next_key(rcon: u32, prev_key: u128) -> u128 {
+    let prev_words: [u32; 4] = u128_to_words(prev_key); // 6 is key length in words
+    let mut res_words: [u32; 4] = [0, 0, 0, 0];
+    res_words[0] = substitute_word(rotate_word(prev_words[3])) ^ prev_words[0] ^ rcon;
+    for i in 1..3 {
+        res_words[i] = prev_words[i] ^ res_words[i-1];
+    }
+    words_to_u128(res_words)
+}
+
+fn words_to_u128(words: [u32; 4]) -> u128 {
+    let bytes_iter = words.iter().flat_map(|word| word.to_le_bytes());
+    let bytes_vec: Vec<u8> = bytes_iter.collect();
+    let bytes_arr: [u8; 16] = bytes_vec.try_into().unwrap();
+    u128::from_le_bytes(bytes_arr)
+}
+
+fn u128_to_words(num: u128) -> [u32; 4] {
+    let bytes = num.to_le_bytes();
+    let words = bytes.chunks(4)
+    .map(|chunk| {
+        let mut buf: [u8; 4] = [0, 0, 0, 0];
+        buf.copy_from_slice(chunk);
+        u32::from_le_bytes(buf)
+    });
+    words.collect::<Vec<u32>>().try_into().unwrap()
 }
 
 // left circular shift of 1 byte
@@ -17,7 +47,7 @@ fn rotate_word(word: u32) -> u32 {
 }
 
 // apply S box substitution to each byte
-fn substitue_word(word: u32) -> u32 {
+fn substitute_word(word: u32) -> u32 {
     let bytes: [u8; 4] = word.to_le_bytes();
     let substituted_bytes = bytes.iter()
         .map(|byte| substitute_byte(*byte));
@@ -36,10 +66,13 @@ fn substitute_byte(byte: u8) -> u8 {
 }
 
 // increment round constant
-fn increment_rc(rc: u8) -> u8 {
-    let res: u16 = 2 * (rc as u16);
-    let res: u8 = if rc >= 0x80 { (res ^ 0x11B) as u8 } else { res as u8 };
-    res
+fn increment_rcon(rcon: u32) -> u32 {
+    let bytes = rcon.to_le_bytes();
+    let rc = bytes[3];
+    let new_rc: u16 = 2 * (rc as u16);
+    let new_rc: u8 = if rc >= 0x80 { (new_rc ^ 0x11B) as u8 } else { new_rc as u8 };
+    let res: u32 = u32::from_le_bytes([new_rc, 0, 0, 0]);
+    return res;
 }
 
 
@@ -75,17 +108,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_increment_rc() {
-        let mut rc = 1;
+    fn test_increment_rcon() {
+        let mut rcon = 0x1000000;
         for _ in 1..10{
-            rc = increment_rc(rc);
+            rcon = increment_rcon(rcon);
         }
-        assert!(rc == 0x36);
+        assert_eq!(rcon, 0x36);
     }
 
     #[test]
     fn test_substitute_word() {
         let word = 0x12345678;
-        assert_eq!(substitue_word(word), 0xc918b1bc)
+        assert_eq!(substitute_word(word), 0xc918b1bc)
+    }
+
+    #[test]
+    fn test_compute_next_key() {
+        let rc: u8 = 1;
+        let rcon: u32 = (rc as u32) << 24;
+        let rcon = increment_rcon(rcon);
+        let key_seed: u128 = 0;
+        let r1 = compute_next_key(rcon, key_seed);
+        assert_eq!(r1, 0x62636363626363636263636362636363);
     }
 }
