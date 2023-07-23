@@ -138,6 +138,8 @@ pub fn decrypt(cipher: &BigUint, priv_key: &BigUint, modulus: &BigUint) -> BigUi
 #[cfg(test)]
 mod tests {    
     use super::*;
+
+    // yes, I know this is not a unit test at all.
     #[test]
     fn test_encrypt_decrypt() {
         for _ in 0..10 {
