@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+// --------------------------------KEY GENERATION-------------------------------------------
+
 pub fn key_schedule(key_seed: u128) -> Vec<u128> {
     let rc: u8 = 1;
     let mut rcon = (rc as u32) << 24;
@@ -91,6 +93,48 @@ fn increment_rc(rc: u8) -> u8 {
     }
 }
 
+// ------------------------------- ENCRYPTION/DECRYPTION -------------------------------
+
+fn encrypt(msg: &str, key: Vec<u128>) {
+    let mut data = vectorize_msg(String::from(msg));
+    for round in 0..11 {
+        let round_key = key[round];
+        data = encrypt_round(&data, round_key);
+        // let data = data.iter().map(|byte| substitute_byte(*byte));
+        
+    }
+}
+
+fn encrypt_round(data: &Vec<u8>, round_key: u128) {
+    let data = data.iter().map(|byte| substitute_byte(*byte));
+    let data = shift_rows(data);
+}
+
+fn shift_rows(data: &Vec<u8>) -> Vec<u8> {
+    let mut data_words = u128_to_words(u128::from_le_bytes(data));
+    for i in 0..4 {
+        for j in 0..i {
+            data_words[i] = rotate_word(data_words[i]);
+        }
+    }
+    words_to_u128(data_words).to_le_bytes().to_vec()
+}
+
+fn vectorize_msg(msg: String) -> Vec<u8>{
+    let padding = 128 - (msg.len() % 128);
+    let msg = format!("{:-<padding$}", msg);
+    let res: Vec<u8> = msg.as_bytes().to_vec();
+    res
+}
+
+fn add_round_key(data: Vec<u8>, round_key: u128) -> Vec<u8> {
+    let round_key_vec = round_key.to_le_bytes();
+    data.iter().enumerate()
+    .map(| (ind, byte) | {
+        byte ^ round_key_vec[ind]
+    }).collect()
+}
+
 
 // -------------------------------CONSTANTS---------------------------------------------
 
@@ -122,6 +166,16 @@ static S_BOX: [[u8;16];16] = [
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_add_round_key() {
+        let input_u128: u128 = 0x00000101_03030707_0f0f1f1f_3f3f7f7f;
+        let input_vec: Vec<u8> = input_u128.to_le_bytes().to_vec();
+        let key: u128 = 0x62636363_62636363_62636363_62636363;
+        let res = add_round_key(input_vec, key);
+        let expected: Vec<u8> = (0x62636262_61606464_6d6c7c7c_5d5c1c1c as u128).to_le_bytes().to_vec();
+        assert_eq!(res, expected)
+    }
 
     #[test]
     fn test_key_schedule() {
