@@ -1,24 +1,33 @@
 #![allow(dead_code)]
 
-pub fn key_schedule(){
-    // let rcon: u32;
+pub fn key_schedule(key_seed: u128) -> Vec<u128> {
     let rc: u8 = 1;
-    let rcon: u32 = (rc as u32) << 24;
-    let key_len: u16 = 128; // 256 for AES-256
-    // let key_len_words = key_len / 32;
-    let num_round_keys: u8 = 11; // 15 for AES-256
-    let rcon = increment_rcon(rcon);
-    let key_seed: u128 = 0;
-    let r1 = compute_next_key(rcon, key_seed);
+    let mut rcon = (rc as u32) << 24;
+    // let key_len: u16 = 128; // 256 for AES-256
+    let num_round_keys: usize = 11; // 15 for AES-256
+    // let key_seed: u128 = 0;
+    let expanded_key = (0..num_round_keys).fold(vec![], |mut acc, round| {
+        if round > 0 {
+            acc.push(compute_next_key(rcon, acc[round-1]));
+            rcon = increment_rcon(rcon);
+        } else {
+            acc.push(key_seed);
+        }
+        acc
+    });
+    expanded_key
 }
 
+// this function could be cleaned up. Was having some trouble keeping the order of the vectors straight in my mind.
 fn compute_next_key(rcon: u32, prev_key: u128) -> u128 {
-    let prev_words: [u32; 4] = u128_to_words(prev_key); // 6 is key length in words
+    let mut prev_words: [u32; 4] = u128_to_words(prev_key); // 4 is key length in words
+    prev_words.reverse();
     let mut res_words: [u32; 4] = [0, 0, 0, 0];
     res_words[0] = substitute_word(rotate_word(prev_words[3])) ^ prev_words[0] ^ rcon;
-    for i in 1..3 {
+    for i in 1..4 {
         res_words[i] = prev_words[i] ^ res_words[i-1];
     }
+    res_words.reverse();
     words_to_u128(res_words)
 }
 
@@ -42,8 +51,8 @@ fn u128_to_words(num: u128) -> [u32; 4] {
 
 // left circular shift of 1 byte
 fn rotate_word(word: u32) -> u32 {
-    let left_byte = word ^ (0xff << 24);
-    (word << 24) ^ (left_byte >> 24) 
+    let left_byte = word ^ !(0xff << 24);
+    (word << 8) ^ (left_byte >> 24) 
 }
 
 // apply S box substitution to each byte
@@ -69,10 +78,17 @@ fn substitute_byte(byte: u8) -> u8 {
 fn increment_rcon(rcon: u32) -> u32 {
     let bytes = rcon.to_le_bytes();
     let rc = bytes[3];
-    let new_rc: u16 = 2 * (rc as u16);
-    let new_rc: u8 = if rc >= 0x80 { (new_rc ^ 0x11B) as u8 } else { new_rc as u8 };
-    let res: u32 = u32::from_le_bytes([new_rc, 0, 0, 0]);
+    let new_rc = increment_rc(rc);
+    let res = u32::from_le_bytes([0, 0, 0, new_rc]);
     return res;
+}
+
+fn increment_rc(rc: u8) -> u8 {
+    if rc >= 0x80 {
+        return (rc << 1) ^ 0x1B;
+    }else {
+        return rc << 1;
+    }
 }
 
 
@@ -108,12 +124,53 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_key_schedule() {
+        let res = key_schedule(0);
+        let expected: Vec<u128> = vec![
+            0x00000000_00000000_00000000_00000000,
+            0x62636363_62636363_62636363_62636363,
+            0x9b9898c9_f9fbfbaa_9b9898c9_f9fbfbaa,
+            0x90973450_696ccffa_f2f45733_0b0fac99,
+            0xee06da7b_876a1581_759e42b2_7e91ee2b,
+            0x7f2e2b88_f8443e09_8dda7cbb_f34b9290,
+            0xec614b85_1425758c_99ff0937_6ab49ba7,
+            0x21751787_3550620b_acaf6b3c_c61bf09b,
+            0x0ef90333_3ba96138_97060a04_511dfa9f,
+            0xb1d4d8e2_8a7db9da_1d7bb3de_4c664941,
+            0xb4ef5bcb_3e92e211_23e951cf_6f8f188e
+        ];
+        assert_eq!(res, expected)
+    }
+
+    #[test]
+    fn test_u128_to_words() {
+        let num: u128 = 0x1200001234;
+        let expected: [u32; 4] = [0x1234, 0x12, 0, 0];
+        let res = u128_to_words(num);
+        assert_eq!(res, expected)
+    }
+
+    #[test]
+    fn test_words_to_u128() {
+        let words: [u32; 4] = [0x1234, 0x12, 0, 0];
+        let expected: u128 = 0x1200001234;
+        let res = words_to_u128(words);
+        assert_eq!(res, expected)
+    }
+
+    #[test]
     fn test_increment_rcon() {
         let mut rcon = 0x1000000;
         for _ in 1..10{
             rcon = increment_rcon(rcon);
         }
-        assert_eq!(rcon, 0x36);
+        assert_eq!(rcon, 0x36000000);
+    }
+
+    #[test]
+    fn test_rotate_word() {
+        let word = 0x12345678;
+        assert_eq!(rotate_word(word), 0x34567812)
     }
 
     #[test]
@@ -125,10 +182,12 @@ mod tests {
     #[test]
     fn test_compute_next_key() {
         let rc: u8 = 1;
-        let rcon: u32 = (rc as u32) << 24;
-        let rcon = increment_rcon(rcon);
+        let rcon = (rc as u32) << 24;
         let key_seed: u128 = 0;
         let r1 = compute_next_key(rcon, key_seed);
         assert_eq!(r1, 0x62636363626363636263636362636363);
+        let rcon = increment_rcon(rcon);
+        let r2 = compute_next_key(rcon, r1);
+        assert_eq!(r2, 0x9b9898c9f9fbfbaa9b9898c9f9fbfbaa);
     }
 }
