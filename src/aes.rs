@@ -2,13 +2,13 @@
 
 // --------------------------------KEY GENERATION-------------------------------------------
 
-pub fn key_schedule(key_seed: u128) -> Vec<u128> {
+pub fn key_schedule(key_seed: u128) -> [u128; 11] {
     let rc: u8 = 1;
     let mut rcon = (rc as u32) << 24;
     // let key_len: u16 = 128; // 256 for AES-256
     let num_round_keys: usize = 11; // 15 for AES-256
     // let key_seed: u128 = 0;
-    let expanded_key = (0..num_round_keys).fold(vec![], |mut acc, round| {
+    let expanded_key_vec = (0..num_round_keys).fold(vec![], |mut acc, round| {
         if round > 0 {
             acc.push(compute_next_key(rcon, acc[round-1]));
             rcon = increment_rcon(rcon);
@@ -17,7 +17,13 @@ pub fn key_schedule(key_seed: u128) -> Vec<u128> {
         }
         acc
     });
-    expanded_key
+    let expanded_key_arr = vec_to_arr(expanded_key_vec);
+    expanded_key_arr
+}
+
+pub fn vec_to_arr<T, const N: usize>(v: Vec<T>) -> [T; N] {
+    v.try_into()
+        .unwrap_or_else(|v: Vec<T>| panic!("Expected a vector with {} values, but received {}.", N, v.len()))
 }
 
 // this function could be cleaned up. Was having some trouble keeping the order of the vectors straight in my mind.
@@ -36,7 +42,7 @@ fn compute_next_key(rcon: u32, prev_key: u128) -> u128 {
 fn words_to_u128(words: [u32; 4]) -> u128 {
     let bytes_iter = words.iter().flat_map(|word| word.to_le_bytes());
     let bytes_vec: Vec<u8> = bytes_iter.collect();
-    let bytes_arr: [u8; 16] = bytes_vec.try_into().unwrap();
+    let bytes_arr = vec_to_arr(bytes_vec);
     u128::from_le_bytes(bytes_arr)
 }
 
@@ -48,7 +54,9 @@ fn u128_to_words(num: u128) -> [u32; 4] {
         buf.copy_from_slice(chunk);
         u32::from_le_bytes(buf)
     });
-    words.collect::<Vec<u32>>().try_into().unwrap()
+    let words_vec = words.collect::<Vec<u32>>();
+    let words_arr = vec_to_arr(words_vec);
+    words_arr
 }
 
 // left circular shift of 1 byte
@@ -82,7 +90,7 @@ fn increment_rcon(rcon: u32) -> u32 {
     let rc = bytes[3];
     let new_rc = increment_rc(rc);
     let res = u32::from_le_bytes([0, 0, 0, new_rc]);
-    return res;
+    res
 }
 
 fn increment_rc(rc: u8) -> u8 {
@@ -95,30 +103,30 @@ fn increment_rc(rc: u8) -> u8 {
 
 // ------------------------------- ENCRYPTION/DECRYPTION -------------------------------
 
-fn encrypt(msg: &str, key: Vec<u128>) {
-    let mut data = vectorize_msg(String::from(msg));
-    for round in 0..11 {
-        let round_key = key[round];
-        data = encrypt_round(&data, round_key);
-        // let data = data.iter().map(|byte| substitute_byte(*byte));
+// fn encrypt(msg: &str, key: Vec<u128>) {
+//     let mut data = vectorize_msg(String::from(msg));
+//     for round in 0..11 {
+//         let round_key = key[round];
+//         data = encrypt_round(&data, round_key);
+//         // let data = data.iter().map(|byte| substitute_byte(*byte));
         
-    }
-}
+//     }
+// }
 
-fn encrypt_round(data: &Vec<u8>, round_key: u128) {
-    let data = data.iter().map(|byte| substitute_byte(*byte));
-    let data = shift_rows(data);
-}
+// fn encrypt_round(data: &Vec<u8>, round_key: u128) {
+//     let data = data.iter().map(|byte| substitute_byte(*byte));
+//     let data = shift_rows(data);
+// }
 
-fn shift_rows(data: &Vec<u8>) -> Vec<u8> {
-    let mut data_words = u128_to_words(u128::from_le_bytes(data));
-    for i in 0..4 {
-        for j in 0..i {
-            data_words[i] = rotate_word(data_words[i]);
-        }
-    }
-    words_to_u128(data_words).to_le_bytes().to_vec()
-}
+// fn shift_rows(data: &Vec<u8>) -> Vec<u8> {
+//     let mut data_words = u128_to_words(u128::from_le_bytes(data));
+//     for i in 0..4 {
+//         for j in 0..i {
+//             data_words[i] = rotate_word(data_words[i]);
+//         }
+//     }
+//     words_to_u128(data_words).to_le_bytes().to_vec()
+// }
 
 fn vectorize_msg(msg: String) -> Vec<u8>{
     let padding = 128 - (msg.len() % 128);
@@ -180,7 +188,7 @@ mod tests {
     #[test]
     fn test_key_schedule() {
         let res = key_schedule(0);
-        let expected: Vec<u128> = vec![
+        let expected: [u128; 11] = [
             0x00000000_00000000_00000000_00000000,
             0x62636363_62636363_62636363_62636363,
             0x9b9898c9_f9fbfbaa_9b9898c9_f9fbfbaa,
