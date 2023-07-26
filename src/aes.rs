@@ -21,7 +21,7 @@ pub fn key_schedule(key_seed: u128) -> [u128; 11] {
     expanded_key_arr
 }
 
-pub fn vec_to_arr<T, const N: usize>(v: Vec<T>) -> [T; N] {
+fn vec_to_arr<T, const N: usize>(v: Vec<T>) -> [T; N] {
     v.try_into()
         .unwrap_or_else(|v: Vec<T>| panic!("Expected a vector with {} values, but received {}.", N, v.len()))
 }
@@ -103,30 +103,88 @@ fn increment_rc(rc: u8) -> u8 {
 
 // ------------------------------- ENCRYPTION/DECRYPTION -------------------------------
 
-// fn encrypt(msg: &str, key: Vec<u128>) {
-//     let mut data = vectorize_msg(String::from(msg));
-//     for round in 0..11 {
-//         let round_key = key[round];
-//         data = encrypt_round(&data, round_key);
-//         // let data = data.iter().map(|byte| substitute_byte(*byte));
-        
-//     }
-// }
+pub fn encrypt_string(msg: String, key: [u128; 11]) -> String {
+    let mut data = vectorize_msg(msg);
+    for round in 0..11 {
+        let round_key = key[round];
+        data = encrypt_round(data, round_key);        
+    }
+    stringify_data(data)
+}
 
-// fn encrypt_round(data: &Vec<u8>, round_key: u128) {
-//     let data = data.iter().map(|byte| substitute_byte(*byte));
-//     let data = shift_rows(data);
-// }
+pub fn encrypt_bytes(data: Vec<u8>, key: [u128; 11]) -> Vec<u8> {
+    let mut data = pad_vec_to_128(data);
+    for round in 0..11 {
+        let round_key = key[round];
+        data = encrypt_round(data, round_key);
+    }
+    data
+}
 
-// fn shift_rows(data: &Vec<u8>) -> Vec<u8> {
-//     let mut data_words = u128_to_words(u128::from_le_bytes(data));
-//     for i in 0..4 {
-//         for j in 0..i {
-//             data_words[i] = rotate_word(data_words[i]);
-//         }
-//     }
-//     words_to_u128(data_words).to_le_bytes().to_vec()
-// }
+fn pad_vec_to_128(data: Vec<u8>) -> Vec<u8> {
+    let mut data = data.to_owned();
+    while data.len() % 128 != 0 {
+        data.push(0);
+    }
+    data
+}
+
+fn stringify_data(data: Vec<u8>) -> String {
+    data.iter().fold(String::from(""), |res, byte| res + &format!("{:02x}", byte))
+}
+
+fn encrypt_round(data: Vec<u8>, round_key: u128) -> Vec<u8> {
+    data.iter()
+        .map(|byte| substitute_byte(*byte))
+        .collect::<Vec<u8>>()
+        .array_chunks::<16>()
+        .map(|block|  shift_rows(*block) )
+        .map(|block| mix_columns(block))
+        // add key
+        .map(|block| add_round_key(block.to_vec(), round_key))
+        .flatten()
+        .collect()
+}
+
+// note: this implementation was basically ripped from the wikipedia page on Rijndael MixColumns
+// https://en.wikipedia.org/wiki/Rijndael_MixColumns
+fn mix_columns(block: [u8; 16]) -> [u8; 16] {
+    let columns = block.iter().enumerate()
+        .fold([vec![], vec![], vec![], vec![]], |mut cols, (ind, byte)| {cols[ind%4].push(*byte); cols});
+    let res = columns.iter()
+        .map(|col| mix_column(col.to_owned()))
+        .flatten()
+        .collect();
+    vec_to_arr(res)
+}
+
+fn mix_column(column: Vec<u8>) -> [u8; 4] {
+    let doubled: Vec<u8> = column.iter().map(|byte| {
+        let h = (byte >> 7) & 1; // h is whether leftmost bit is 1
+        (byte << 1) ^ (h * 0x1B) // double byte and xor by 0x1B if h is set
+    }).collect();
+    [
+        doubled[0] ^ column[3] ^ column[2] ^ doubled[1] ^ column[1],
+        doubled[1] ^ column[0] ^ column[3] ^ doubled[2] ^ column[2],
+        doubled[2] ^ column[1] ^ column[0] ^ doubled[3] ^ column[3],
+        doubled[3] ^ column[2] ^ column[1] ^ doubled[0] ^ column[0],
+    ]
+}
+
+fn shift_rows(data: [u8; 16]) -> [u8; 16] {
+    let mut data_words =
+        u128_to_words(
+            u128::from_le_bytes(
+                data
+            )
+        );
+    for i in 0..4 {
+        for _ in 0..i {
+            data_words[i] = rotate_word(data_words[i]);
+        }
+    }
+    words_to_u128(data_words).to_le_bytes()
+}
 
 fn vectorize_msg(msg: String) -> Vec<u8>{
     let padding = 128 - (msg.len() % 128);
@@ -174,6 +232,25 @@ static S_BOX: [[u8;16];16] = [
 #[cfg(test)]
 mod tests {
     use super::*;
+
+
+    #[test]
+    fn test_encrypt_string() {
+        let msg = String::from("test");
+        let key_seed = 0x00000000_00000000_00000000_00000000;
+        let round_keys = key_schedule(key_seed);
+        let res = encrypt_string(msg, round_keys);
+        assert_eq!(res, " ")
+    }
+
+    #[test]
+    fn test_shift_rows() {
+        let data: [u8; 16] = [1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0];
+        let res = shift_rows(data);
+        let expected: [u8; 16] = [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];
+        assert_eq!(res, expected)
+    }
+
 
     #[test]
     fn test_add_round_key() {
