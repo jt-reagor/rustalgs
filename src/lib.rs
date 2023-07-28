@@ -1,4 +1,4 @@
 #![feature(array_chunks)]
 
-mod rsa;
-mod aes;
+pub mod rsa;
+pub mod aes;
